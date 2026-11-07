@@ -26,6 +26,13 @@ const API = '/latex/api';
 const DEFAULT_BASE_URL = 'https://latex.ustc.edu.cn';
 /** Credential record key in the profile credential store (`<owner>/<id>`). */
 const CREDENTIAL_KEY = 'dsh-ustc-latex-agent/session';
+/** Prefix stamped on every comment the agent writes. */
+const AGENT_PREFIX = 'Comment By DeepSeek Harness';
+/** Wrap an agent-authored comment body with the attribution prefix. */
+function agentNote(text) {
+    const body = String(text ?? '').trim();
+    return body === '' ? AGENT_PREFIX : `${AGENT_PREFIX}\n\n${body}`;
+}
 /** Cap on document text returned by a tool. */
 const TEXT_CAP = 12_000;
 /** Cap on file-tree rows returned by a tool. */
@@ -131,6 +138,8 @@ export function apply(ctx) {
         tree: null,
         activity: [],
         cursor: 0,
+        edits: [],
+        editCursor: 0,
         lock: Promise.resolve(),
         pdf: null,
         pdfBytes: null,
@@ -423,8 +432,12 @@ export function apply(ctx) {
         if (state.pdf !== null)
             state.pdf = { ...state.pdf, stale: true };
         const reanchored = await repairAnchors(client, project, doc, beforeThreads, { replacement: '' }).catch(() => []);
+        const fresh = await client.readDoc(project.id, doc.id);
+        const anchor = (fresh.text.split('\n').find((row) => row.trim() !== '') ?? '').trim();
+        const traceThreadId = await leaveEditComment(client, project, doc, anchor, `整体改写记录（${doc.path}）\n\nAgent 用 latex_write 重写了整篇文档。`).catch(() => undefined);
+        logEdit({ path: doc.path, kind: 'write', version: result?.version, threadId: traceThreadId, reanchored });
         record('edit', `Replaced ${doc.path} (${result?.version ?? '?'})`, doc.path);
-        return { ok: true, path: doc.path, docId: doc.id, version: result?.version, reanchored };
+        return { ok: true, path: doc.path, docId: doc.id, version: result?.version, reanchored, commentThreadId: traceThreadId };
     }
 
     async function editDoc(path, find, replace, all) {
@@ -453,8 +466,22 @@ export function apply(ctx) {
         if (state.pdf !== null)
             state.pdf = { ...state.pdf, stale: true };
         const reanchored = await repairAnchors(client, project, doc, beforeThreads, { replacement: String(replace ?? ''), overlapRanges: ranges }).catch(() => []);
+        let traceThreadId;
+        if (reanchored.length === 0) {
+            let anchor = String(replace ?? '').trim();
+            if (anchor === '' && beforeDoc !== null) {
+                const at = beforeDoc.text.indexOf(needle);
+                const lineNo = at >= 0 ? beforeDoc.text.slice(0, at).split('\n').length : 1;
+                const fresh = await client.readDoc(project.id, doc.id);
+                const lines = fresh.text.split('\n');
+                anchor = (lines[lineNo - 1] ?? '').trim() || (lines[lineNo - 2] ?? '').trim() || (lines.find((row) => row.trim() !== '') ?? '').trim();
+            }
+            const summary = `修改记录（${doc.path}）\n\n原：${clip(needle, 200)}\n新：${clip(String(replace ?? '(删除)'), 200)}`;
+            traceThreadId = await leaveEditComment(client, project, doc, anchor, summary).catch(() => undefined);
+        }
+        logEdit({ path: doc.path, kind: 'edit', replacements: result?.replacements ?? 0, version: result?.version, threadId: traceThreadId, reanchored });
         record('edit', `Edited ${doc.path}: ${result?.replacements ?? '?'} replacement(s)`, doc.path);
-        return { ok: true, path: doc.path, docId: doc.id, replacements: result?.replacements ?? 0, version: result?.version, reanchored };
+        return { ok: true, path: doc.path, docId: doc.id, replacements: result?.replacements ?? 0, version: result?.version, reanchored, commentThreadId: traceThreadId };
     }
 
     async function compileProject() {
@@ -528,7 +555,7 @@ export function apply(ctx) {
             const selectedText = typeof body.selectedText === 'string' && body.selectedText !== '' ? body.selectedText : undefined;
             const thread = await client.addComment(project.id, {
                 filePath: path,
-                content,
+                content: agentNote(content),
                 selectedText,
                 line: Number.isFinite(body.line) && body.line > 0 ? Math.floor(body.line) : undefined,
                 column: Number.isFinite(body.column) && body.column > 0 ? Math.floor(body.column) : undefined,
@@ -545,7 +572,7 @@ export function apply(ctx) {
             const content = String(body.content ?? '').trim();
             if (content === '')
                 throw new Error('content is required to reply');
-            await client.postCommentMessage(project.id, threadId, content);
+            await client.postCommentMessage(project.id, threadId, agentNote(content));
             record('comment', 'Replied to a review comment', '');
             return { ok: true, threadId };
         }
@@ -646,6 +673,34 @@ export function apply(ctx) {
         return threads.filter((thread) => thread.path === path);
     }
 
+    /** Append one edit to the bounded audit log. */
+    function logEdit(entry) {
+        state.editCursor += 1;
+        state.edits.push({ id: String(state.editCursor), at: Date.now(), ...entry });
+        if (state.edits.length > 200)
+            state.edits.shift();
+    }
+
+    /** Leave an anchored agent comment on the passage an edit produced. */
+    async function leaveEditComment(client, project, doc, anchorText, summary) {
+        const text = String(anchorText ?? '').trim();
+        if (text === '')
+            return undefined;
+        const current = await client.readDoc(project.id, doc.id);
+        const position = current.text.indexOf(text);
+        if (position < 0)
+            return undefined;
+        const line = current.text.slice(0, position).split('\n').length;
+        const thread = await client.addComment(project.id, {
+            filePath: doc.path,
+            content: agentNote(summary),
+            selectedText: text,
+            line,
+        });
+        record('comment', `为编辑留下批注（${doc.path} 第 ${line} 行）`, doc.path);
+        return thread?.threadId;
+    }
+
     /**
      * Re-anchor review threads affected by an edit.
      *
@@ -690,7 +745,7 @@ export function apply(ctx) {
                 await client.postCommentMessage(
                     project.id,
                     thread.threadId,
-                    `Agent 改写记录：\n\n原：${clip(quote, 240)}\n\n新：${clip(anchor, 240)}`,
+                    agentNote(`改写记录：\n\n原：${clip(quote, 240)}\n\n新：${clip(anchor, 240)}`),
                 );
                 repaired.push(thread.threadId);
             }
@@ -812,6 +867,11 @@ export function apply(ctx) {
             }
             if (method === 'POST' && path === `${API}/comments`)
                 return sendJson(res, 200, await commentAction(await readJsonBody(req)));
+            if (method === 'GET' && path === `${API}/edits`) {
+                const since = Number(url.searchParams.get('since') ?? '0');
+                const floor = Number.isFinite(since) ? since : 0;
+                return sendJson(res, 200, { cursor: state.editCursor, edits: state.edits.filter((entry) => Number(entry.id) > floor) });
+            }
             if (method === 'GET' && path === `${API}/events`) {
                 const since = Number(url.searchParams.get('since') ?? '0');
                 const floor = Number.isFinite(since) ? since : 0;
