@@ -1,0 +1,4 @@
+# dsh-ustc-latex-agent: the LaTeX co-editing row and its Web Client half.
+- insert:
+    - id: dsh-ustc-latex-agent
+      name: 'dsh-ustc-latex-agent'

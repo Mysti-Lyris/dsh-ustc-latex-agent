@@ -1,0 +1,60 @@
+{
+  "name": "dsh-ustc-latex-agent",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness bundle that turns the conversation agent into a live co-editor of USTC Overleaf projects: one-time-token auth, real-time OT edits, compile, review comments, PDF preview, and automatic comment reminders.",
+  "license": "GPL-3.0-only",
+  "author": "dsh-ustc-latex-agent contributors",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "deepseek",
+    "overleaf",
+    "latex",
+    "ustc",
+    "co-editing",
+    "agent",
+    "plugin",
+    "bundle"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.5 <0.3.0"
+  },
+  "scripts": {
+    "test": "node test/smoke-client.mjs",
+    "selftest": "node probe.mjs --selftest"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Local Overleaf session captured by the standalone probe (contains a cookie)
+probe-state.json
+
+# Logs and local artifacts
+*.log
+*.tgz
+dist/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
