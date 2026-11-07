@@ -24,6 +24,9 @@ anchored review comments, and automatic wake-ups when you leave a new comment.
 - **Real-time co-editing** — `latex_edit` / `latex_write` submit ShareJS OT updates through the
   collaboration socket, so changes show up in your open editor as live typing (with version-conflict
   retry and post-write verification).
+- **Anchor-preserving rewrites** — when an edit touches a commented passage (including deleting the
+  whole passage or replacing the document), the affected thread is re-anchored onto the rewritten
+  text and a before/after record is posted in the thread, so the highlight and history survive.
 - **Read / compile** — `latex_read` returns the server's freshest text (including unsaved typing);
   `latex_compile` returns the PDF URL and log tail.
 - **Review comments** — list threads with the anchored quote, line, surrounding context and the full
@@ -229,6 +232,9 @@ upstream MIT copyright and permission notice are retained; see
   或直接对 Agent 说「用这个 token 连接：…」。
 - **选段提意见**：网站里选中段落加评论，或在面板里点文档「预览」→ 选段 → 写意见 → 添加批注。
 - **审阅闭环**：对 Agent 说「看下批注并按意见改」，它会改稿并在同一线程回复你。
+- **改写后锚点不丢**：`latex_edit` / `latex_write` 后，凡是被改动覆盖到的批注线程都会
+  重新锚定到改写后的新文本，并在该线程写入「原：…／新：…」记录；整段删除或整篇替换时
+  高亮与历史对话也不会丢。
 - **限制**：面板不内嵌编辑器；同一账号的改动不会显示为独立头像；编译耗时取决于项目大小。
 - **凭据**：每位使用者都需要自己的 USTC 账号与一次性 token（`/agent/setup` 生成，单次、短时有效）；
   仓库里不含任何 token、cookie 或项目数据，插件只把交换来的会话 cookie 存在本机 dsh 凭据库。

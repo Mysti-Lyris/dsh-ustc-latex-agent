@@ -418,11 +418,13 @@ export function apply(ctx) {
         const project = requireProject();
         const client = await ensureClient();
         const doc = await resolveDoc(path);
+        const beforeThreads = await threadsForPath(doc.path).catch(() => []);
         const result = await serialized(() => client.setDocumentText(project.id, doc.id, String(text)));
         if (state.pdf !== null)
             state.pdf = { ...state.pdf, stale: true };
+        const reanchored = await repairAnchors(client, project, doc, beforeThreads, { replacement: '' }).catch(() => []);
         record('edit', `Replaced ${doc.path} (${result?.version ?? '?'})`, doc.path);
-        return { ok: true, path: doc.path, docId: doc.id, version: result?.version };
+        return { ok: true, path: doc.path, docId: doc.id, version: result?.version, reanchored };
     }
 
     async function editDoc(path, find, replace, all) {
@@ -432,11 +434,27 @@ export function apply(ctx) {
         const needle = String(find ?? '');
         if (needle === '')
             throw new Error('find is required');
+        const beforeThreads = await threadsForPath(doc.path).catch(() => []);
+        const beforeDoc = await client.readDoc(project.id, doc.id).catch(() => null);
+        const ranges = [];
+        if (beforeDoc !== null) {
+            let from = 0;
+            while (true) {
+                const at = beforeDoc.text.indexOf(needle, from);
+                if (at < 0)
+                    break;
+                ranges.push({ start: at, end: at + needle.length });
+                from = at + needle.length;
+                if (all !== true)
+                    break;
+            }
+        }
         const result = await serialized(() => client.replaceText(project.id, doc.id, needle, String(replace ?? ''), all === true));
         if (state.pdf !== null)
             state.pdf = { ...state.pdf, stale: true };
+        const reanchored = await repairAnchors(client, project, doc, beforeThreads, { replacement: String(replace ?? ''), overlapRanges: ranges }).catch(() => []);
         record('edit', `Edited ${doc.path}: ${result?.replacements ?? '?'} replacement(s)`, doc.path);
-        return { ok: true, path: doc.path, docId: doc.id, replacements: result?.replacements ?? 0, version: result?.version };
+        return { ok: true, path: doc.path, docId: doc.id, replacements: result?.replacements ?? 0, version: result?.version, reanchored };
     }
 
     async function compileProject() {
@@ -473,6 +491,7 @@ export function apply(ctx) {
                 threadId: String(thread.threadId ?? ''),
                 path: String(thread.path ?? ''),
                 docId: String(thread.docId ?? ''),
+                position: Number(thread.position ?? 0),
                 line: Number(thread.line ?? 0),
                 column: Number(thread.column ?? 0),
                 selectedText: String(thread.selectedText ?? ''),
@@ -620,6 +639,68 @@ export function apply(ctx) {
         res.setHeader('content-disposition', 'inline; filename="dsh-ustc-latex-agent.pdf"');
         res.setHeader('cache-control', 'no-store');
         res.end(cached.data);
+    }
+
+    async function threadsForPath(path) {
+        const threads = await listComments('all');
+        return threads.filter((thread) => thread.path === path);
+    }
+
+    /**
+     * Re-anchor review threads affected by an edit.
+     *
+     * Overleaf follows OT edits for text that survives, but deleting a passage
+     * collapses its comment range to a stray character rather than dropping it,
+     * so "the thread still has a range" is not proof that it still points at
+     * anything meaningful. For every thread whose old range overlapped the edit
+     * we move the anchor onto the rewritten text, and record the before/after
+     * passage in the thread so the history survives.
+     */
+    async function repairAnchors(client, project, doc, beforeThreads, options = {}) {
+        const replacement = String(options.replacement ?? '').trim();
+        const ranges = Array.isArray(options.overlapRanges) ? options.overlapRanges : null;
+        const after = await threadsForPath(doc.path).catch(() => []);
+        const alive = new Set(after.map((thread) => thread.threadId));
+        const current = await client.readDoc(project.id, doc.id);
+        const lines = current.text.split('\n');
+        const repaired = [];
+        for (const thread of beforeThreads) {
+            const selected = String(thread.selectedText ?? '');
+            const start = Number(thread.position ?? 0);
+            const end = start + selected.length;
+            const overlapped = ranges === null
+                ? true
+                : ranges.some((range) => range.start < end && range.end > start);
+            const destroyed = !alive.has(thread.threadId) || String((after.find((item) => item.threadId === thread.threadId) ?? {}).selectedText ?? '') === '';
+            if (!overlapped && !destroyed)
+                continue;
+            let anchor = '';
+            if (replacement !== '' && current.text.includes(replacement))
+                anchor = replacement;
+            if (anchor === '' && Number.isInteger(thread.line) && thread.line > 0)
+                anchor = String(lines[thread.line - 1] ?? '').trim();
+            if (anchor === '') {
+                anchor = (lines.find((row) => row.trim() !== '') ?? '').trim();
+            }
+            if (anchor === '')
+                continue;
+            try {
+                await client.reanchorComment(project.id, doc.id, thread.threadId, anchor, Math.max(0, current.text.indexOf(anchor)));
+                const quote = selected.trim() !== '' ? selected : '(原段落已删除)';
+                await client.postCommentMessage(
+                    project.id,
+                    thread.threadId,
+                    `Agent 改写记录：\n\n原：${clip(quote, 240)}\n\n新：${clip(anchor, 240)}`,
+                );
+                repaired.push(thread.threadId);
+            }
+            catch {
+                // Keep the thread's messages even if the range cannot be restored.
+            }
+        }
+        if (repaired.length > 0)
+            record('comment', `重新锚定 ${repaired.length} 条批注`, doc.path);
+        return repaired;
     }
 
     async function statusPayload() {
