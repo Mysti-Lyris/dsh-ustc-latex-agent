@@ -980,7 +980,9 @@ window.__ModuleLoader__.load({
           }
           postJson(R + '/watch', { sessionId: sessionId, threads: payload })
             .then(function (result) {
-              if (result && result.notified > 0) {
+              // Mark as seen after any accepted report unless it was throttled;
+              // otherwise agent-authored threads would be re-reported forever.
+              if (result && result.throttled !== true) {
                 payload.forEach(function (item) {
                   seen[item.threadId] = true;
                 });

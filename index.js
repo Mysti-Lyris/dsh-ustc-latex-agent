@@ -606,7 +606,16 @@ export function apply(ctx) {
         const incoming = Array.isArray(body.threads) ? body.threads : [];
         const fresh = incoming.filter((thread) => {
             const id = String(thread?.threadId ?? '');
-            return id !== '' && !state.notifiedThreads.has(id) && !state.agentThreads.has(id);
+            if (id === '' || state.notifiedThreads.has(id) || state.agentThreads.has(id))
+                return false;
+            // Never wake the agent for a thread whose newest message it wrote
+            // itself (per-edit trace comments, replies). Without this a trace
+            // comment would re-trigger the review flow in a loop.
+            const messages = Array.isArray(thread.messages) ? thread.messages : [];
+            const last = messages[messages.length - 1];
+            if (last !== undefined && String(last.content ?? '').startsWith(AGENT_PREFIX))
+                return false;
+            return true;
         });
         if (fresh.length === 0)
             return { ok: true, notified: 0 };
@@ -697,6 +706,8 @@ export function apply(ctx) {
             selectedText: text,
             line,
         });
+        if (typeof thread?.threadId === 'string')
+            state.agentThreads.add(thread.threadId);
         record('comment', `为编辑留下批注（${doc.path} 第 ${line} 行）`, doc.path);
         return thread?.threadId;
     }
