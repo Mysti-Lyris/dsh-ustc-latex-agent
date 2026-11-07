@@ -1,6 +1,6 @@
 {
   "name": "dsh-ustc-latex-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness bundle that turns the conversation agent into a live co-editor of USTC Overleaf projects: one-time-token auth, real-time OT edits, compile, review comments, PDF preview, and automatic comment reminders.",
   "license": "GPL-3.0-only",
   "author": "dsh-ustc-latex-agent contributors",
