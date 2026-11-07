@@ -624,7 +624,7 @@ export function apply(ctx) {
             const message = clip(String(thread.message ?? ''), 200);
             return `- ${path}${line > 0 ? ` 第 ${line} 行` : ''}${quote !== '' ? `「${quote}」` : ''}：${message}`;
         });
-        const text = `【Overleaf 批注提醒】用户在共享 LaTeX 项目里新增了 ${fresh.length} 条批注：\n${lines.join('\n')}\n请用 latex_comments 读取完整线程，按意见用 latex_edit 修改，再用 latex_comments 的 reply 在同一线程回复用户。`;
+        const text = `【Overleaf 批注提醒】用户在共享 LaTeX 项目里新增了 ${fresh.length} 条批注：\n${lines.join('\n')}\n请用 latex_comments 读取完整线程，按意见用 latex_edit 修改，再用 latex_comments 的 reply 在同一线程回复用户。不要调用 resolve 标记解决——线程由用户在面板或网站上手动关闭。`;
         try {
             await agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } });
         }
@@ -992,10 +992,10 @@ export function apply(ctx) {
             type: 'object', additionalProperties: false, properties: {},
         }, async () => compileProject());
 
-        tool('latex_comments', 'Review comments on the open project. Use this when the user says they left a comment or a revision suggestion on a passage: list returns each thread\'s anchored text, line, surrounding lines, and messages; apply the change with latex_edit, then reply in the same thread so the user sees the answer on the site. add creates a new comment anchored to selected_text (or a line); resolve/reopen/delete manage the thread.', {
+        tool('latex_comments', 'Review comments on the open project. Use this when the user says they left a comment or a revision suggestion on a passage: list returns each thread\'s anchored text, line, surrounding lines, and messages; apply the change with latex_edit, then reply in the same thread so the user sees the answer on the site. add creates a new comment anchored to selected_text (or a line); delete removes a thread. Never resolve a thread: closing threads is the user\'s decision, done manually in the panel or on the site.', {
             type: 'object', additionalProperties: false, required: ['action'],
             properties: {
-                action: { type: 'string', enum: ['list', 'add', 'reply', 'resolve', 'reopen', 'delete'], description: 'Operation to perform.' },
+                action: { type: 'string', enum: ['list', 'add', 'reply', 'delete'], description: 'Operation to perform. Resolving and reopening are user-only actions and are not available to the agent.' },
                 status: { type: 'string', enum: ['open', 'all'], description: 'For list: only unresolved threads (open, default) or every thread (all).' },
                 path: { type: 'string', description: 'Document path for add.' },
                 content: { type: 'string', description: 'Comment or reply text for add/reply.' },
