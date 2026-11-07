@@ -49,7 +49,14 @@ Clone this repository somewhere local, or install it from GitHub with dsh's plug
 
 ### 2. Register the bundle in your profile
 
-The supported path is dsh's plugin manager. Ask the agent in any session:
+The package is published on npm as **`dsh-ustc-latex-agent`**:
+
+```sh
+dsh plugin --profile <profile> add dsh-ustc-latex-agent
+```
+
+From a local checkout or GitHub, dsh's plugin manager is also supported. Ask the agent in any
+session:
 
 > install the bundle from `/absolute/path/to/dsh-ustc-latex-agent`
 
