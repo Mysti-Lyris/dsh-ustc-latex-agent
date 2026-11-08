@@ -577,7 +577,7 @@ window.__ModuleLoader__.load({
     // ---------------------------------------------------------------------
     // HTTP (same-origin, JSON, no-store)
     // ---------------------------------------------------------------------
-    async function request(path, init) {
+    async function httpRequest(path, init) {
       if (typeof fetch !== 'function') throw new Error('');
       const options = Object.assign({ cache: 'no-store', headers: { accept: 'application/json' } }, init || {});
       const response = await fetch(path, options);
@@ -596,8 +596,8 @@ window.__ModuleLoader__.load({
       return body || {};
     }
 
-    function postJson(path, payload) {
-      return request(path, {
+    function httpPostJson(path, payload) {
+      return httpRequest(path, {
         method: 'POST',
         headers: {
           accept: 'application/json',
@@ -907,6 +907,16 @@ window.__ModuleLoader__.load({
         const knownThreads = React.useRef(null);
         const autoNotifyRef = React.useRef(true);
         const sessionId = props && props.sessionId ? String(props.sessionId) : '';
+        function request(path, init) {
+          const headers = Object.assign({}, (init && init.headers) || {});
+          if (sessionId) headers['x-latex-session'] = sessionId;
+          return httpRequest(path, Object.assign({}, init || {}, { headers }));
+        }
+        function postJson(path, payload) {
+          const headers = { 'content-type': 'application/json' };
+          if (sessionId) headers['x-latex-session'] = sessionId;
+          return httpRequest(path, { method: 'POST', headers, body: JSON.stringify(payload || {}) });
+        }
         autoNotifyRef.current = view.autoNotify !== false;
 
         function set(patch) {

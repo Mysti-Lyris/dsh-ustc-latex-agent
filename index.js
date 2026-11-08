@@ -14,6 +14,7 @@
  *
  * No npm dependencies beyond Node built-ins and the vendored client.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { OverleafClient } from './lib/overleaf-client.js';
 import { looksLikeShareToken, resolveShareToken } from './lib/share-link.js';
 
@@ -131,22 +132,45 @@ function normalizeTreePath(path) {
  * listener, timer, or route behind.
  */
 export function apply(ctx) {
-    const state = {
-        client: null,
-        clientCookie: '',
-        project: null,
-        tree: null,
-        activity: [],
-        cursor: 0,
-        edits: [],
-        editCursor: 0,
-        lock: Promise.resolve(),
-        pdf: null,
-        pdfBytes: null,
-        notifiedThreads: new Set(),
-        agentThreads: new Set(),
-        lastNotifyAt: 0,
-    };
+    const sessions = new Map();
+    const sessionContext = new AsyncLocalStorage();
+    function stateBucket(sessionId) {
+        const key = String(sessionId ?? 'default');
+        let bucket = sessions.get(key);
+        if (bucket === undefined) {
+            bucket = {
+                client: null,
+                clientCookie: '',
+                project: null,
+                tree: null,
+                activity: [],
+                cursor: 0,
+                edits: [],
+                editCursor: 0,
+                pdf: null,
+                pdfBytes: null,
+                notifiedThreads: new Set(),
+                agentThreads: new Set(),
+                lastNotifyAt: 0,
+                lock: Promise.resolve(),
+            };
+            sessions.set(key, bucket);
+        }
+        return bucket;
+    }
+    function withSession(sessionId, operation) {
+        return sessionContext.run(String(sessionId ?? 'default'), operation);
+    }
+    /** Existing code keeps using state.xxx; the Proxy resolves it per session. */
+    const state = new Proxy({}, {
+        get(_target, property) {
+            return stateBucket(sessionContext.getStore())[property];
+        },
+        set(_target, property, value) {
+            stateBucket(sessionContext.getStore())[property] = value;
+            return true;
+        },
+    });
 
     /** Run mutating Overleaf operations one at a time. */
     function serialized(operation) {
@@ -827,6 +851,7 @@ export function apply(ctx) {
             }
             if (method === 'POST' && path === `${API}/logout`) {
                 await clearRecord();
+                sessions.clear();
                 state.client = null;
                 state.clientCookie = '';
                 state.project = null;
@@ -911,7 +936,7 @@ export function apply(ctx) {
         const tool = (name, description, parameters, execute) => register({
             name, description, parameters,
             output: { schema: { ...objectSchema }, render: textResult },
-            execute,
+            execute: (args, exec) => withSession(exec?.agent?.id ?? 'default', () => execute(args, exec)),
         });
 
         tool('latex_status', 'Show whether a USTC Overleaf session is connected and which project is open. Call this first when unsure.', {
@@ -1032,7 +1057,18 @@ export function apply(ctx) {
 
     ctx.effect(() => {
         const disposeTools = registerTools();
-        const disposeRoute = ctx.webServer.register({ kind: 'prefix', path: API, handler: (req, res) => { void handle(req, res); } });
+        const disposeRoute = ctx.webServer.register({
+            kind: 'prefix',
+            path: API,
+            handler: (req, res) => {
+                const url = new URL(req.url ?? '/', 'http://localhost');
+                const header = req.headers['x-latex-session'];
+                const sessionId = typeof header === 'string' && header !== ''
+                    ? header
+                    : (url.searchParams.get('session') ?? 'default');
+                void withSession(sessionId, () => handle(req, res));
+            },
+        });
         console.log('[dsh-ustc-latex-agent] plugin loaded');
         return () => {
             disposeTools();

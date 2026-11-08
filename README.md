@@ -24,6 +24,7 @@ anchored review comments, and automatic wake-ups when you leave a new comment.
 - **Real-time co-editing** — `latex_edit` / `latex_write` submit ShareJS OT updates through the
   collaboration socket, so changes show up in your open editor as live typing (with version-conflict
   retry and post-write verification).
+- **Per-session isolation** — each conversation keeps its own active project, file tree, compiled PDF, activity feed and edit log, so two sessions can edit two different papers at once.
 - **Anchor-preserving rewrites** — when an edit touches a commented passage (including deleting the
   whole passage or replacing the document), the affected thread is re-anchored onto the rewritten
   text and a before/after record is posted in the thread, so the highlight and history survive.
@@ -232,6 +233,7 @@ upstream MIT copyright and permission notice are retained; see
   或直接对 Agent 说「用这个 token 连接：…」。
 - **选段提意见**：网站里选中段落加评论，或在面板里点文档「预览」→ 选段 → 写意见 → 添加批注。
 - **审阅闭环**：对 Agent 说「看下批注并按意见改」，它会改稿并在同一线程回复你。
+- **多会话隔离**：每个会话拥有独立的当前项目、文件树、PDF、活动流与编辑记录，两个会话可同时编辑两篇不同论文。
 - **改写后锚点不丢**：`latex_edit` / `latex_write` 后，凡是被改动覆盖到的批注线程都会
   重新锚定到改写后的新文本，并在该线程写入「原：…／新：…」记录；整段删除或整篇替换时
   高亮与历史对话也不会丢。
